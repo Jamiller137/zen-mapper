@@ -7,8 +7,13 @@ authors = [
     { name = "Ethan Rooke", email = "pypi@ethan.roo.ke" }
 ]
 dependencies = [
+    "flask>=3.1.0",
+    "jinja2>=3.1.4",
+    "networkx>=3.4.2",
     "numpy>=1.26.0",
+    "ruff>=0.9.3",
     'typing-extensions; python_version < "3.11"',
+    "watchdog>=6.0.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.10"
