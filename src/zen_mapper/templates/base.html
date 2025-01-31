@@ -88,14 +88,22 @@
     <div id="tool-panel">
         <h3>Tools</h3>
         <button id="select-tool" class="tool-button">Select Mode</button>
+        <p> When in this mode, click on nodes to select them.</p>
+        <hr>
         <button id="pan-tool" class="tool-button active">Pan Mode</button>
+        <p> When in this mode, you can interact with the simplicial complex.</p>
+        <hr>
         <button id="cut-nodes" class="tool-button" disabled>Cut Selected Nodes</button>
+        <p> Click this to cut the selected nodes from the simplicial complex</p>
+        <hr>
+        <button id="purge-nodes" class="tool-button" disabled>Purge Smaller Nodes</button>
+        <p> Click this to cut the selected nodes and smaller.</p>
+        <hr>
         <div id="selection-info">
             <p>Selected nodes: <span id="selected-count">0</span></p>
         </div>
         <div style="margin-top: 20px;">
             <button id="toggle-auto-refresh" class="tool-button active">Auto-Refresh: ON</button>
-            <button id="manual-refresh" class="tool-button">Manual Refresh</button>
             <button id="center-view" class="tool-button">Center View</button>
         </div>
     </div>
@@ -113,7 +121,7 @@
         // 🎪 Main group for all our visual elements
         const g = svg.append("g");
 
-        // 🔍 Zoom behavior - for that sweet exploration experience
+        // 🔍 Zoom behavior
         const zoom = d3.zoom()
             .scaleExtent([0.1, 10])
             .on("zoom", (event) => {
@@ -173,13 +181,13 @@
                 .radius(d => Math.sqrt(d.size) * 2))
             .alphaDecay(0.0125);
 
-        // Smooth transition between force states
+        // Smooth transitions
         simulation.force("center")
             .strength(1);
 
         d3.transition()
             .duration(1500)
-            .ease(d3.easeQuadOut)
+            .ease(d3.easeQuadOut) // Easing function
             .tween("centerStrength", () => {
                 const i = d3.interpolate(1, 0.1);
                 return t => {
@@ -208,7 +216,7 @@
                 .call(zoom.transform, transform);
         }, 1000);
 
-        // 🔨 Create visual elements
+        // 🔨 Create visual elements for the simplex
         let link = g.append("g")
             .selectAll("line")
             .data(mapper_data.links)
@@ -231,6 +239,7 @@
             .attr("class", "node")
             .attr("r", d => Math.sqrt(d.size) * 2)
             .style("fill", d => colorScale(d.color));
+
 
         // 🎮 Drag behavior setup
         const drag = d3.drag()
@@ -287,7 +296,7 @@
         document.getElementById('pan-tool').addEventListener('click', () => setMode('pan'));
         document.getElementById('cut-nodes').addEventListener('click', cutSelectedNodes);
         document.getElementById('center-view').addEventListener('click', zoomToFit);
-        document.getElementById('manual-refresh').addEventListener('click', () => updateVisualization());
+        document.getElementById('purge-nodes').addEventListener('click', purgeSmallerNodes);
 
         // auto-refresh toggle
         document.getElementById('toggle-auto-refresh').addEventListener('click', function() {
@@ -305,7 +314,7 @@
             if (mode === 'select') {
                 // activate select mode
                 document.getElementById('select-tool').classList.add('active');
-                svg.call(zoom.filter(() => false)); // disable zoom
+                //svg.call(zoom.filter(() => false)); // disable zoom
                 node.on('.drag', null); 
             } else {
                 // activate pan mode
@@ -314,10 +323,10 @@
                 node.call(drag); // Reapply drag behavior
             }
         }
-
         function updateSelectionInfo() {
             document.getElementById('selected-count').textContent = selectedNodes.size;
             document.getElementById('cut-nodes').disabled = selectedNodes.size === 0;
+            document.getElementById('purge-nodes').disabled = selectedNodes.size === 0;
         }
 
         function cutSelectedNodes() {
@@ -463,6 +472,88 @@
                 })
                 .catch(error => console.error('Error updating visualization:', error));
         }
+
+        function purgeSmallerNodes() {
+            if (selectedNodes.size === 0) return;
+
+            // find maximum size among the selected nodes
+            const maxSelectedSize = Math.max(...Array.from(selectedNodes).map(id => 
+                mapper_data.nodes.find(n => n.id === id).size
+            ));
+
+            // filter out nodes
+            mapper_data.nodes = mapper_data.nodes.filter(n => n.size > maxSelectedSize);
+
+            // filter connections
+            mapper_data.links = mapper_data.links.filter(l => 
+                mapper_data.nodes.some(n => n.id === l.source.id) && 
+                mapper_data.nodes.some(n => n.id === l.target.id)
+            );
+
+            // filter faces
+            mapper_data.faces = mapper_data.faces.filter(f => 
+                !f.nodes.some(id => !mapper_data.nodes.some(n => n.id === id))
+            );
+
+            // update visualization
+            node = g.selectAll(".node")
+                .data(mapper_data.nodes, d => d.id);
+
+            node.exit().remove();
+
+            const nodeEnter = node.enter()
+                .append("circle")
+                .attr("class", "node")
+                .attr("r", d => Math.sqrt(d.size) * 2)
+                .style("fill", d => colorScale(d.color));
+
+            node = nodeEnter.merge(node);
+
+            // update links
+            link = g.selectAll(".link")
+                .data(mapper_data.links);
+
+            link.exit().remove();
+
+            const linkEnter = link.enter()
+                .append("line")
+                .attr("class", "link");
+
+            link = linkEnter.merge(link);
+
+            // update faces
+            face = g.selectAll(".face")
+                .data(mapper_data.faces);
+
+            face.exit().remove();
+
+            const faceEnter = face.enter()
+                .append("polygon")
+                .attr("class", "face")
+                .style("fill", "#333")
+                .style("fill-opacity", 0.2)
+                .style("mix-blend-mode", "multiply");
+
+            face = faceEnter.merge(face);
+
+            // reset simulation
+            simulation.nodes(mapper_data.nodes);
+            simulation.force("link").links(mapper_data.links);
+            simulation.alpha(0.3).restart();
+
+            // reapply event listeners
+            setupNodeEvents();
+
+            // switch back to pan mode and recenter
+            setMode('pan');
+            zoomToFit();
+
+            // clear selections
+            selectedNodes.clear();
+            updateSelectionInfo();
+        }
+
+
 
         // update positions on each tick
         simulation.on("tick", () => {
