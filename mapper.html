@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Mapper Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+        }
+        #visualization {
+            width: calc(100vw - 250px);
+            height: 100vh;
+        }
+        /* 🎛️ Control panel - where we become tda wizards */
+        #tool-panel {
+            width: 250px;
+            background: #f5f5f5;
+            padding: 20px;
+            border-left: 1px solid #ddd;
+        }
+        #mapper-svg {
+            width: 100%;
+            height: 100%;
+        }
+        .node {
+            cursor: pointer;
+            stroke: #fff;
+            stroke-width: 1.5px;
+        }
+        .node.selected {
+            stroke: #ff0000;
+            stroke-width: 3px;
+        }
+        /* 🤚 Grabby cursor for dragging nodes */
+        .node:active {
+            cursor: grabbing;
+        }
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+        }
+        .face {
+            fill: #eee;
+            fill-opacity: 0.2;
+            stroke: none;
+            mix-blend-mode: multiply;
+        }
+        /* 💬 Tooltip - node's personal information card */
+        .tooltip {
+            position: absolute;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            pointer-events: none;
+            font-family: sans-serif;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .tool-button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        /* ✨ Hover effects for buttons */
+        .tool-button:hover {
+            background: #eee;
+        }
+        /* 🎯 Active button state */
+        .tool-button.active {
+            background: #ddd;
+        }
+    </style>
+</head>
+<body>
+    <!-- 📊 Main visualization container -->
+    <div id="visualization">
+        <svg id="mapper-svg"></svg>
+    </div>
+    <div id="tool-panel">
+        <h3>Tools</h3>
+        <button id="select-tool" class="tool-button">Select Mode</button>
+        <button id="pan-tool" class="tool-button active">Pan Mode</button>
+        <button id="cut-nodes" class="tool-button" disabled>Cut Selected Nodes</button>
+        <div id="selection-info">
+            <p>Selected nodes: <span id="selected-count">0</span></p>
+        </div>
+        <div style="margin-top: 20px;">
+            <button id="toggle-auto-refresh" class="tool-button active">Auto-Refresh: ON</button>
+            <button id="manual-refresh" class="tool-button">Manual Refresh</button>
+            <button id="center-view" class="tool-button">Center View</button>
+        </div>
+    </div>
+    <script>
+        // 🎲 Let the data games begin!
+        let mapper_data = {"nodes": [{"id": "0", "x": 127.60285973480836, "y": -250.88820617569073, "size": 142, "color": -8.056149302270907, "tooltip": "<strong>Members:</strong> 142<br>Feature 0:\n       -9.09 \u00b1 0.42    <br>Feature 1:\n       10.73 \u00b1 6.07    <br>Feature 2:\n       -2.96 \u00b1 1.81    <br>"}, {"id": "1", "x": 1.5634175937078965, "y": -209.28658586381718, "size": 165, "color": -7.1896908604733145, "tooltip": "<strong>Members:</strong> 165<br>Feature 0:\n       -8.95 \u00b1 0.58    <br>Feature 1:\n       10.43 \u00b1 6.40    <br>Feature 2:\n        1.30 \u00b1 1.98    <br>"}, {"id": "2", "x": -123.20124562091542, "y": -179.0055086485595, "size": 186, "color": -4.547100421091595, "tooltip": "<strong>Members:</strong> 186<br>Feature 0:\n       -6.24 \u00b1 1.50    <br>Feature 1:\n       10.29 \u00b1 5.88    <br>Feature 2:\n        5.69 \u00b1 1.31    <br>"}, {"id": "3", "x": -249.79849266292047, "y": -180.80870221364444, "size": 144, "color": -1.8035266748218548, "tooltip": "<strong>Members:</strong> 144<br>Feature 0:\n       -2.74 \u00b1 1.60    <br>Feature 1:\n        9.72 \u00b1 6.00    <br>Feature 2:\n        7.55 \u00b1 0.42    <br>"}, {"id": "4", "x": 96.56390255728127, "y": 613.8590902674464, "size": 34, "color": 2.6109768377125033, "tooltip": "<strong>Members:</strong> 34<br>Feature 0:\n        1.94 \u00b1 0.80    <br>Feature 1:\n        6.25 \u00b1 4.15    <br>Feature 2:\n       13.84 \u00b1 0.18    <br>"}, {"id": "5", "x": 142.31724836077362, "y": 719.1817676371037, "size": 6, "color": 1.8481511314079897, "tooltip": "<strong>Members:</strong> 6<br>Feature 0:\n        1.23 \u00b1 0.82    <br>Feature 1:\n       17.92 \u00b1 0.66    <br>Feature 2:\n       13.97 \u00b1 0.14    <br>"}, {"id": "6", "x": 256.6214875620498, "y": -275.8309225999042, "size": 123, "color": -7.444845470763378, "tooltip": "<strong>Members:</strong> 123<br>Feature 0:\n       -7.07 \u00b1 1.10    <br>Feature 1:\n       11.26 \u00b1 5.95    <br>Feature 2:\n       -7.17 \u00b1 1.34    <br>"}, {"id": "7", "x": -502.8691475074664, "y": -835.4486023546448, "size": 0, "color": 0.0, "tooltip": "Empty cluster"}, {"id": "8", "x": -679.7735047718616, "y": 501.50870281853605, "size": 0, "color": 0.0, "tooltip": "Empty cluster"}, {"id": "9", "x": -377.69681019623476, "y": -193.09836877082353, "size": 139, "color": 1.0421807209952236, "tooltip": "<strong>Members:</strong> 139<br>Feature 0:\n        1.53 \u00b1 1.50    <br>Feature 1:\n       10.98 \u00b1 5.92    <br>Feature 2:\n        7.32 \u00b1 0.52    <br>"}, {"id": "10", "x": 198.5319069905646, "y": 634.7028411487245, "size": 76, "color": 4.268765887651969, "tooltip": "<strong>Members:</strong> 76<br>Feature 0:\n        4.76 \u00b1 1.35    <br>Feature 1:\n        9.90 \u00b1 5.85    <br>Feature 2:\n       12.85 \u00b1 0.61    <br>"}, {"id": "11", "x": -442.20625703047676, "y": -234.85863639212545, "size": 6, "color": 2.261461261165401, "tooltip": "<strong>Members:</strong> 6<br>Feature 0:\n        3.12 \u00b1 0.72    <br>Feature 1:\n        1.42 \u00b1 0.79    <br>Feature 2:\n        6.67 \u00b1 0.41    <br>"}, {"id": "12", "x": 381.046087149734, "y": -265.55077295070885, "size": 115, "color": -5.806625425258951, "tooltip": "<strong>Members:</strong> 115<br>Feature 0:\n       -3.99 \u00b1 1.33    <br>Feature 1:\n       11.64 \u00b1 6.13    <br>Feature 2:\n       -9.71 \u00b1 0.71    <br>"}, {"id": "13", "x": -793.7369782811354, "y": -287.14396768403003, "size": 80, "color": -1.4191956794031553, "tooltip": "<strong>Members:</strong> 80<br>Feature 0:\n        1.05 \u00b1 0.70    <br>Feature 1:\n        9.61 \u00b1 6.08    <br>Feature 2:\n       -4.76 \u00b1 0.04    <br>"}, {"id": "14", "x": 278.04895626353124, "y": -960.0, "size": 0, "color": 0.0, "tooltip": "Empty cluster"}, {"id": "15", "x": -491.7728487249011, "y": -185.8596128804745, "size": 187, "color": 2.9040575404141307, "tooltip": "<strong>Members:</strong> 187<br>Feature 0:\n        4.91 \u00b1 1.03    <br>Feature 1:\n       10.54 \u00b1 5.69    <br>Feature 2:\n        4.76 \u00b1 1.35    <br>"}, {"id": "16", "x": 308.1208602796497, "y": 610.343762894008, "size": 76, "color": 6.274133633245327, "tooltip": "<strong>Members:</strong> 76<br>Feature 0:\n        8.20 \u00b1 1.14    <br>Feature 1:\n        7.51 \u00b1 3.93    <br>Feature 2:\n       10.59 \u00b1 0.99    <br>"}, {"id": "17", "x": 275.42712665569513, "y": 565.3097655985545, "size": 23, "color": 5.673130242414373, "tooltip": "<strong>Members:</strong> 23<br>Feature 0:\n        7.58 \u00b1 1.05    <br>Feature 1:\n       18.13 \u00b1 1.87    <br>Feature 2:\n       11.14 \u00b1 0.85    <br>"}, {"id": "18", "x": 490.54760430172155, "y": -211.65757035453288, "size": 126, "color": -2.877207581727541, "tooltip": "<strong>Members:</strong> 126<br>Feature 0:\n        0.57 \u00b1 1.75    <br>Feature 1:\n       10.70 \u00b1 5.89    <br>Feature 2:\n      -10.89 \u00b1 0.17    <br>"}, {"id": "19", "x": -705.0250091156494, "y": -244.96767847370816, "size": 165, "color": 0.0019620181395459263, "tooltip": "<strong>Members:</strong> 165<br>Feature 0:\n        3.02 \u00b1 1.34    <br>Feature 1:\n       11.10 \u00b1 6.11    <br>Feature 2:\n       -4.14 \u00b1 0.60    <br>"}, {"id": "20", "x": -696.2915372820319, "y": -174.30841036583374, "size": 226, "color": 2.1247181477738173, "tooltip": "<strong>Members:</strong> 226<br>Feature 0:\n        5.43 \u00b1 0.91    <br>Feature 1:\n       10.48 \u00b1 5.92    <br>Feature 2:\n       -1.55 \u00b1 1.81    <br>"}, {"id": "21", "x": -602.3108996666804, "y": -168.6223287133657, "size": 122, "color": 3.2802695398079162, "tooltip": "<strong>Members:</strong> 122<br>Feature 0:\n        6.14 \u00b1 0.21    <br>Feature 1:\n       10.24 \u00b1 5.75    <br>Feature 2:\n        2.14 \u00b1 1.20    <br>"}, {"id": "22", "x": 368.7607471276299, "y": 510.97632210400536, "size": 95, "color": 7.408166837420433, "tooltip": "<strong>Members:</strong> 95<br>Feature 0:\n       10.81 \u00b1 0.89    <br>Feature 1:\n        9.75 \u00b1 5.70    <br>Feature 2:\n        7.29 \u00b1 1.54    <br>"}, {"id": "23", "x": 565.0772406058142, "y": -115.23878240264217, "size": 133, "color": -0.3713430172055916, "tooltip": "<strong>Members:</strong> 133<br>Feature 0:\n        4.15 \u00b1 1.59    <br>Feature 1:\n       11.34 \u00b1 5.74    <br>Feature 2:\n      -10.46 \u00b1 0.50    <br>"}, {"id": "24", "x": 595.5063678697301, "y": 8.403679304436567, "size": 145, "color": 2.34110409582794, "tooltip": "<strong>Members:</strong> 145<br>Feature 0:\n        7.60 \u00b1 1.72    <br>Feature 1:\n       10.31 \u00b1 5.64    <br>Feature 2:\n       -8.65 \u00b1 1.33    <br>"}, {"id": "25", "x": 582.4739904848213, "y": 140.99788712069957, "size": 115, "color": 5.326591500734515, "tooltip": "<strong>Members:</strong> 115<br>Feature 0:\n       10.96 \u00b1 0.87    <br>Feature 1:\n        9.79 \u00b1 6.02    <br>Feature 2:\n       -4.90 \u00b1 1.58    <br>"}, {"id": "26", "x": 534.845744009699, "y": 271.68108817550996, "size": 117, "color": 7.175926393289759, "tooltip": "<strong>Members:</strong> 117<br>Feature 0:\n       12.39 \u00b1 0.23    <br>Feature 1:\n       11.02 \u00b1 6.31    <br>Feature 2:\n        0.16 \u00b1 2.16    <br>"}, {"id": "27", "x": 461.6271833130627, "y": 395.60974977548244, "size": 57, "color": 7.741686670030437, "tooltip": "<strong>Members:</strong> 57<br>Feature 0:\n       12.23 \u00b1 0.28    <br>Feature 1:\n       10.32 \u00b1 6.08    <br>Feature 2:\n        3.83 \u00b1 1.18    <br>"}], "links": [{"source": "6", "target": "12"}, {"source": "15", "target": "21"}, {"source": "18", "target": "23"}, {"source": "26", "target": "27"}, {"source": "5", "target": "10"}, {"source": "9", "target": "11"}, {"source": "16", "target": "22"}, {"source": "3", "target": "9"}, {"source": "23", "target": "24"}, {"source": "12", "target": "18"}, {"source": "0", "target": "1"}, {"source": "1", "target": "2"}, {"source": "19", "target": "20"}, {"source": "10", "target": "17"}, {"source": "13", "target": "19"}, {"source": "24", "target": "25"}, {"source": "20", "target": "21"}, {"source": "4", "target": "10"}, {"source": "22", "target": "27"}, {"source": "0", "target": "6"}, {"source": "2", "target": "3"}, {"source": "17", "target": "22"}, {"source": "10", "target": "16"}, {"source": "9", "target": "15"}, {"source": "11", "target": "15"}, {"source": "25", "target": "26"}], "faces": [{"nodes": ["9", "11", "15"]}]};
+
+        const container = document.getElementById('visualization');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        const svg = d3.select("#mapper-svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // 🎪 Main group for all our visual elements
+        const g = svg.append("g");
+
+        // 🔍 Zoom behavior - for that sweet exploration experience
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 10])
+            .on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            });
+
+        svg.call(zoom);
+
+        // Zoom to fit function
+        function zoomToFit() {
+            const bounds = g.node().getBBox();
+            const fullWidth = width;
+            const fullHeight = height;
+            const padding = 80;
+
+            const scale = 0.95 / Math.max(
+                bounds.width / fullWidth,
+                bounds.height / fullHeight
+            );
+
+            const transform = d3.zoomIdentity
+                .translate(
+                    fullWidth/2 - (bounds.x + bounds.width/2) * scale,
+                    fullHeight/2 - (bounds.y + bounds.height/2) * scale
+                )
+                .scale(scale);
+
+            svg.transition()
+                .duration(750)
+                .call(zoom.transform, transform);
+        }
+
+        const colorScale = d3.scaleLinear()
+            .domain(d3.extent(mapper_data.nodes, d => d.color))
+            .range(["#440154", "#FDE724"]);
+
+        // 💭 Tooltip - will contain node details
+        const tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        // 🎮 Interaction mode tracking
+        let currentMode = 'pan';
+        let selectedNodes = new Set();
+        let autoRefreshEnabled = true;
+
+        // 🎪 physics simulation - where the magic happens
+        const simulation = d3.forceSimulation(mapper_data.nodes)
+            .force("link", d3.forceLink(mapper_data.links)
+                .id(d => d.id)
+                .distance(75))
+            .force("charge", d3.forceManyBody()
+                .strength(-150))
+            .force("center", d3.forceCenter(0, 0))
+            .force("collide", d3.forceCollide()
+                .radius(d => Math.sqrt(d.size) * 2))
+            .alphaDecay(0.0125);
+
+        // Smooth transition between force states
+        simulation.force("center")
+            .strength(1);
+
+        d3.transition()
+            .duration(1500)
+            .ease(d3.easeQuadOut)
+            .tween("centerStrength", () => {
+                const i = d3.interpolate(1, 0.1);
+                return t => {
+                    simulation.force("center").strength(i(t));
+                    simulation.alpha(0.3).restart();
+                };
+            });
+
+        // Initial zoom to fit with animation
+        setTimeout(() => {
+            const bounds = g.node().getBBox();
+            const scale = 0.95 / Math.max(
+                bounds.width / width,
+                bounds.height / height
+            );
+
+            const transform = d3.zoomIdentity
+                .translate(
+                    width/2 - (bounds.x + bounds.width/2) * scale,
+                    height/2 - (bounds.y + bounds.height/2) * scale
+                )
+                .scale(scale);
+
+            svg.transition()
+                .duration(2000)
+                .call(zoom.transform, transform);
+        }, 1000);
+
+        // 🔨 Create visual elements
+        let link = g.append("g")
+            .selectAll("line")
+            .data(mapper_data.links)
+            .join("line")
+            .attr("class", "link");
+
+        let face = g.append("g")
+            .selectAll("polygon")
+            .data(mapper_data.faces)
+            .join("polygon")
+            .attr("class", "face")
+            .style("fill", "#333")
+            .style("fill-opacity", 0.2)
+            .style("mix-blend-mode", "multiply");
+
+        let node = g.append("g")
+            .selectAll("circle")
+            .data(mapper_data.nodes)
+            .join("circle")
+            .attr("class", "node")
+            .attr("r", d => Math.sqrt(d.size) * 2)
+            .style("fill", d => colorScale(d.color));
+
+        // 🎮 Drag behavior setup
+        const drag = d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended);
+
+        function setupNodeEvents() {
+            // clear existing event listeners
+            node.on('.drag', null)
+                .on('mouseover', null)
+                .on('mouseout', null)
+                .on('click', null);
+
+            // apply new event listeners
+            node.on("mouseover", function(event, d) {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(d.tooltip)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 10) + "px");
+                })
+                .on("mouseout", function(d) {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                })
+                .on("click", function(event, d) {
+                    if (currentMode === 'select') {
+                        event.stopPropagation();
+                        const nodeElement = d3.select(this);
+                        if (selectedNodes.has(d.id)) {
+                            selectedNodes.delete(d.id);
+                            nodeElement.classed("selected", false);
+                        } else {
+                            selectedNodes.add(d.id);
+                            nodeElement.classed("selected", true);
+                        }
+                        updateSelectionInfo();
+                    }
+                });
+
+            // apply drag behavior based on current mode
+            if (currentMode !== 'select') {
+                node.call(drag);
+            }
+        }
+
+        setupNodeEvents();
+
+        // tool panel
+        document.getElementById('select-tool').addEventListener('click', () => setMode('select'));
+        document.getElementById('pan-tool').addEventListener('click', () => setMode('pan'));
+        document.getElementById('cut-nodes').addEventListener('click', cutSelectedNodes);
+        document.getElementById('center-view').addEventListener('click', zoomToFit);
+        document.getElementById('manual-refresh').addEventListener('click', () => updateVisualization());
+
+        // auto-refresh toggle
+        document.getElementById('toggle-auto-refresh').addEventListener('click', function() {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            this.textContent = `Auto-Refresh: ${autoRefreshEnabled ? 'ON' : 'OFF'}`;
+            this.classList.toggle('active');
+        });
+
+        function setMode(mode) {
+            currentMode = mode;
+
+            // remove active class from all buttons
+            document.querySelectorAll('.tool-button').forEach(btn => btn.classList.remove('active'));
+
+            if (mode === 'select') {
+                // activate select mode
+                document.getElementById('select-tool').classList.add('active');
+                svg.call(zoom.filter(() => false)); // disable zoom
+                node.on('.drag', null); 
+            } else {
+                // activate pan mode
+                document.getElementById('pan-tool').classList.add('active');
+                svg.call(zoom.filter(() => true)); // Enable zoom
+                node.call(drag); // Reapply drag behavior
+            }
+        }
+
+        function updateSelectionInfo() {
+            document.getElementById('selected-count').textContent = selectedNodes.size;
+            document.getElementById('cut-nodes').disabled = selectedNodes.size === 0;
+        }
+
+        function cutSelectedNodes() {
+            if (selectedNodes.size === 0) return;
+
+            // filter out selected nodes and their connections
+            mapper_data.nodes = mapper_data.nodes.filter(n => !selectedNodes.has(n.id));
+            mapper_data.links = mapper_data.links.filter(l => 
+                !selectedNodes.has(l.source.id) && !selectedNodes.has(l.target.id));
+            mapper_data.faces = mapper_data.faces.filter(f => 
+                !f.nodes.some(id => selectedNodes.has(id)));
+
+            // update nodes with proper data binding
+            node = g.selectAll(".node")
+                .data(mapper_data.nodes, d => d.id);
+
+            node.exit().remove();
+
+            const nodeEnter = node.enter()
+                .append("circle")
+                .attr("class", "node")
+                .attr("r", d => Math.sqrt(d.size) * 2)
+                .style("fill", d => colorScale(d.color));
+
+            node = nodeEnter.merge(node);
+
+            // update links
+            link = g.selectAll(".link")
+                .data(mapper_data.links);
+
+            link.exit().remove();
+
+            const linkEnter = link.enter()
+                .append("line")
+                .attr("class", "link");
+
+            link = linkEnter.merge(link);
+
+            // update faces
+            face = g.selectAll(".face")
+                .data(mapper_data.faces);
+
+            face.exit().remove();
+
+            const faceEnter = face.enter()
+                .append("polygon")
+                .attr("class", "face")
+                .style("fill", "#333")
+                .style("fill-opacity", 0.2)
+                .style("mix-blend-mode", "multiply");
+
+            face = faceEnter.merge(face);
+
+            // reset simulation with the remaining nodes
+            simulation.nodes(mapper_data.nodes);
+            simulation.force("link").links(mapper_data.links);
+            simulation.alpha(0.3).restart();
+
+            // reapply event listeners
+            setupNodeEvents();
+
+            // clear our node selections
+            selectedNodes.clear();
+            updateSelectionInfo();
+        }
+
+        function updateVisualization() {
+            fetch('/get_updated_data')
+                .then(response => response.json())
+                .then(newData => {
+                    console.log('Updating visualization with new data...');
+
+                    // store current transform
+                    const currentTransform = d3.zoomTransform(svg.node());
+
+                    // update data
+                    mapper_data = newData;
+
+                    // update color scale domain
+                    colorScale.domain(d3.extent(mapper_data.nodes, d => d.color));
+
+                    // update nodes with proper data binding
+                    node = g.selectAll(".node")
+                        .data(mapper_data.nodes, d => d.id);
+
+                    node.exit().remove();
+
+                    const nodeEnter = node.enter()
+                        .append("circle")
+                        .attr("class", "node")
+                        .attr("r", d => Math.sqrt(d.size) * 2)
+                        .style("fill", d => colorScale(d.color));
+
+                    node = nodeEnter.merge(node);
+
+                    node.attr("r", d => Math.sqrt(d.size) * 2)
+                        .style("fill", d => colorScale(d.color));
+
+                    // update links
+                    link = g.selectAll(".link")
+                        .data(mapper_data.links);
+
+                    link.exit().remove();
+
+                    const linkEnter = link.enter()
+                        .append("line")
+                        .attr("class", "link");
+
+                    link = linkEnter.merge(link);
+
+                    // update faces
+                    face = g.selectAll(".face")
+                        .data(mapper_data.faces);
+
+                    face.exit().remove();
+
+                    const faceEnter = face.enter()
+                        .append("polygon")
+                        .attr("class", "face")
+                        .style("fill", "#333")
+                        .style("fill-opacity", 0.2)
+                        .style("mix-blend-mode", "multiply");
+
+                    face = faceEnter.merge(face);
+
+                    // reset simulation
+                    simulation.nodes(mapper_data.nodes);
+                    simulation.force("link").links(mapper_data.links);
+
+                    // restore transform
+                    svg.call(zoom.transform, currentTransform);
+
+                    // restart simulation
+                    simulation.alpha(0.3).restart();
+
+                    // reapply listeners (again)
+                    setupNodeEvents();
+
+                    // clear selections (again)
+                    selectedNodes.clear();
+                    node.classed("selected", false);
+                    updateSelectionInfo();
+                })
+                .catch(error => console.error('Error updating visualization:', error));
+        }
+
+        // update positions on each tick
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+            node
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y);
+            face
+                .attr("points", d => d.nodes.map(id => {
+                    const node = mapper_data.nodes.find(n => n.id === id);
+                    return `${node.x},${node.y}`;
+                }).join(" "));
+
+                if (simulation.alpha() >= 0.99) {  // check if this is one of the first ticks
+                    zoomToFit(0);  // uses 0 for immediate centering
+                }
+        });
+
+        // drag functions
+        function dragstarted(event, d) {
+            if (currentMode !== 'select') {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+        }
+
+        function dragged(event, d) {
+            if (currentMode !== 'select') {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+        }
+
+        function dragended(event, d) {
+            if (currentMode !== 'select') {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        // setup EventSource for server updates
+        function setupEventSource() {
+            const source = new EventSource("/stream");
+
+            source.onmessage = function(e) {
+                console.log('Received message:', e.data);
+                if (e.data.includes('change detected') && autoRefreshEnabled) {
+                    console.log('Changes detected, updating visualization...');
+                    updateVisualization();
+                }
+            };
+
+            source.onerror = function(e) {
+                console.error('EventSource error:', e);
+                source.close();
+                setTimeout(setupEventSource, 1000);
+            };
+        }
+
+        // initialize EventSource
+        setupEventSource();
+
+        // clear selection when clicking on empty space
+        svg.on("click", () => {
+            if (currentMode === 'select') {
+                selectedNodes.clear();
+                node.classed("selected", false);
+                updateSelectionInfo();
+            }
+        });
+    </script>
+</body>
+</html>

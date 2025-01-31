@@ -17,6 +17,7 @@ class MapperResult:
     nodes: list[np.ndarray]
     nerve: Komplex
     cover: list[list[int]]
+    projection: np.ndarray
 
 
 def mapper(
@@ -50,4 +51,5 @@ def mapper(
         nodes=nodes,
         nerve=compute_nerve(nodes, dim=dim),
         cover=cover_id,
+        projection=projection
     )
