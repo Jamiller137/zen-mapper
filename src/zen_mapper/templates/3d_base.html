@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #3d-graph { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="3d-graph"></div>
+
+    <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
+    <script src="https://unpkg.com/3d-force-graph@1.70.11/dist/3d-force-graph.min.js"></script>
+
+    <script>
+    const Graph = ForceGraph3D()
+        (document.getElementById('3d-graph'))
+        .graphData({{ mapper_data|safe }})
+        .enableNodeDrag(true)
+        .enableNavigationControls(true)
+        .onEngineTick(() => {
+            // Update simplex positions each frame
+            const nodePositions = {};
+            Graph.graphData().nodes.forEach(n => {
+                nodePositions[n.id] = { x: n.x, y: n.y, z: n.z };
+            });
+
+            simplexMeshes.forEach(mesh => {
+                const nodes = mesh.userData.nodes;
+                mesh.geometry.setFromPoints([
+                    new THREE.Vector3(nodePositions[nodes[0]].x, nodePositions[nodes[0]].y, nodePositions[nodes[0]].z),
+                    new THREE.Vector3(nodePositions[nodes[1]].x, nodePositions[nodes[1]].y, nodePositions[nodes[1]].z),
+                    new THREE.Vector3(nodePositions[nodes[2]].x, nodePositions[nodes[2]].y, nodePositions[nodes[2]].z)
+                ]);
+                mesh.geometry.verticesNeedUpdate = true;
+            });
+        });
+
+    // add 2-simplex (faces)
+    const simplexMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x9afff0,
+        transparent: true,
+        opacity: .2,
+        side: THREE.FrontSide
+    });
+
+    const simplexMeshes = {{ mapper_data|safe }}.faces.map(face => {
+        const geometry = new THREE.BufferGeometry();
+        const mesh = new THREE.Mesh(geometry, simplexMaterial);
+
+        mesh.userData = { nodes: face.nodes };
+        Graph.scene().add(mesh);
+        return mesh;
+    });
+</script>
+</body>
+</html>

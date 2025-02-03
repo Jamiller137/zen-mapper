@@ -12,6 +12,7 @@ import os
 import sys
 import time
 from pathlib import Path
+import weakref
 
 import numpy as np
 from flask import Flask, Response, render_template
@@ -127,6 +128,7 @@ class MapperVisualizer:
             [0.0, "#440154"], [1.0, "#FDE724"]  # viridis?? please!
         ]
         self._data = None
+        self._3d_animations = weakref.WeakSet()
         MapperVisualizer._instances.append(self)
 
     @classmethod
@@ -188,6 +190,54 @@ class MapperVisualizer:
             "links": links,
             "faces": faces
         }
+        return self._data
+    
+    def _prepare_3d_data(self) -> dict:
+        """
+        Generates 3D force graph compatible data structure
+        Returns similar data as _prepare_d3_data but with z-coordinates
+        """
+        import networkx as nx
+
+        if self._data is None:
+            G = nx.Graph()
+            G.add_nodes_from(range(len(self.result.nodes)))
+            G.add_edges_from(self.result.nerve[1])
+
+            positions = nx.spring_layout(G, dim=3, seed=42)
+            positions = {k: v * 960 for k, v in positions.items()}
+
+            nodes = []
+            for i, members in enumerate(self.result.nodes):
+                x, y, z = positions[i]
+                nodes.append({
+                    "id": str(i),
+                    "x": float(x),
+                    "y": float(y),
+                    "z": float(z),
+                    "size": len(members)
+                })
+
+            # Add 2-simplices (triangles)
+            faces = []
+            for simplex in self.result.nerve[2]:
+                face_nodes = [str(n) for n in simplex]
+                faces.append({
+                    "nodes": face_nodes,
+                    "centroid": {
+                        "x": np.mean([positions[n][0] for n in simplex]),
+                        "y": np.mean([positions[n][1] for n in simplex]),
+                        "z": np.mean([positions[n][2] for n in simplex])
+                    }
+                })
+
+            self._data = {
+                "nodes": nodes,
+                "links": [{"source": str(s[0]), "target": str(s[1])} 
+                        for s in self.result.nerve[1]],
+                "faces": faces 
+            }
+
         return self._data
 
     def _format_tooltip(self, members: np.ndarray) -> str:
@@ -317,6 +367,94 @@ class MapperVisualizer:
         output_path.write_text(html)
 
         return str(output_path.resolve())
+    
+    def show_3d(self, port: int = 5000, debug: bool = True) -> None:
+        """
+        Launch 3D visualization
+        """
+        global app
+        app = Flask(__name__)
+        app.changed = False
+        app.new_mapper_result = None
+
+        import __main__
+        main_file = os.path.abspath(__main__.__file__) if hasattr(__main__, '__file__') else None
+
+        if main_file:
+            # set up file watching
+            event_handler = FileChangeHandler(app, main_file)
+            observer = Observer()
+            observer.schedule(event_handler, path=os.path.dirname(main_file), recursive=False)
+            observer.start()
+            print(f"Watching for changes in: {os.path.dirname(main_file)}")
+        else:
+            print("Warning: Could not determine main file path. Auto-update disabled.")
+
+        @app.route('/')
+        def index():
+            return render_template('3d_base.html',
+                                title='3D Mapper Visualization',
+                                mapper_data=json.dumps(self._prepare_3d_data(), cls=NumpyEncoder))
+
+        @app.route('/get_updated_data')
+        def get_updated_data():
+            if app.new_mapper_result is not None:
+                self.update_data(app.new_mapper_result)
+                app.new_mapper_result = None
+            return json.dumps(self._prepare_d3_data(), cls=NumpyEncoder)
+
+        @app.route('/stream')
+        def stream():
+            def generate():
+                while True:
+                    if app.changed:
+                        print("Sending change event")
+                        app.changed = False
+                        yield "data: change detected\n\n"
+                    time.sleep(0.5)
+            response = Response(generate(), mimetype='text/event-stream')
+            response.headers['Cache-Control'] = 'no-cache'
+            response.headers['X-Accel-Buffering'] = 'no'
+            return response
+
+        try:
+            app.run(debug=debug, port=port, use_reloader=False, threaded=True)
+        finally:
+            if main_file:  # only try to stop observer if it was started
+                observer.stop()
+                observer.join()
+
+        @app.after_request
+        def add_header(response):
+            # Prevent browser caching of simulation data
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+
+    def render_3d(self, output_file: str = "3d_mapper.html") -> str:
+        """
+        Generate static 3D HTML visualization
+        """
+        current_dir = Path(__file__).parent
+
+        env = Environment(
+            loader=FileSystemLoader(current_dir / "templates"),
+            trim_blocks=True,
+            lstrip_blocks=True
+        )
+
+        template = env.get_template("3d_base.html")
+
+        html = template.render(
+            title="3D Mapper Visualization",
+            mapper_data=json.dumps(self._prepare_3d_data(), cls=NumpyEncoder)
+        )
+
+        output_path = Path(output_file)
+        output_path.write_text(html)
+
+        return str(output_path.resolve())
 
 class NumpyEncoder(json.JSONEncoder):
     """
@@ -326,4 +464,6 @@ class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        return json.JSONEncoder.default(self, obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        return super().default(obj)

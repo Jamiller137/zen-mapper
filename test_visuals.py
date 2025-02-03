@@ -36,7 +36,7 @@ def generate_klein_bottle(n_samples):
 
     return noisy_klein_6d
 
-def generate_test_data(n_samples=15000):
+def generate_test_data(n_samples=1500):
     klein_bottle = generate_klein_bottle(n_samples)
     return klein_bottle
 
@@ -82,8 +82,8 @@ def run_pipeline():
     # create new visualization if it doesn't exist
     if not MapperVisualizer._instances:
         viz = MapperVisualizer(result, X, lens)
-        viz.render()
-        viz.show()
+        viz.render_3d()
+        #viz.show_3d()
 
 if __name__ == "__main__":
     run_pipeline()
