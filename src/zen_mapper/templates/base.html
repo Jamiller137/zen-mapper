@@ -42,6 +42,7 @@
         .link {
             stroke: #999;
             stroke-opacity: 0.6;
+            stroke-linecap: round;  // Rounds the ends of the lines
         }
         .face {
             fill: #eee;
@@ -173,12 +174,17 @@
         const simulation = d3.forceSimulation(mapper_data.nodes)
             .force("link", d3.forceLink(mapper_data.links)
                 .id(d => d.id)
-                .distance(75))
+                .distance(link => {
+                    const sourceSize = Math.sqrt(link.source.size) * 2;
+                    const targetSize = Math.sqrt(link.target.size) * 2;
+                    return (sourceSize + targetSize) * 1.5; // 1.5x buffer for better spacing
+                }))
             .force("charge", d3.forceManyBody()
-                .strength(-150))
+                .strength(d => -150 * Math.sqrt(d.size))) // scale charge with size
             .force("center", d3.forceCenter(0, 0))
             .force("collide", d3.forceCollide()
-                .radius(d => Math.sqrt(d.size) * 2))
+                .radius(d => Math.sqrt(d.size) * 2.5) // Increased collision radius
+                .strength(1)) // Maximum strength for collision
             .alphaDecay(0.0125);
 
         // Smooth transitions
@@ -221,7 +227,14 @@
             .selectAll("line")
             .data(mapper_data.links)
             .join("line")
-            .attr("class", "link");
+            .attr("class", "link")
+            .style("stroke-width", d => {
+                // calculate width based on connected nodes' sizes
+                const sourceSize = Math.sqrt(d.source.size);
+                const targetSize = Math.sqrt(d.target.size);
+                // use average of connected nodes' sizes for the link width
+                return Math.max(1, Math.min(8, (sourceSize + targetSize) / 8));
+            });
 
         let face = g.append("g")
             .selectAll("polygon")
@@ -361,7 +374,12 @@
 
             const linkEnter = link.enter()
                 .append("line")
-                .attr("class", "link");
+                .attr("class", "link")
+                .style("stroke-width", d => {
+                    const sourceSize = Math.sqrt(d.source.size);
+                    const targetSize = Math.sqrt(d.target.size);
+                    return Math.max(1, Math.min(8, (sourceSize + targetSize) / 8));
+                });
 
             link = linkEnter.merge(link);
 
@@ -433,7 +451,12 @@
 
                     const linkEnter = link.enter()
                         .append("line")
-                        .attr("class", "link");
+                        .attr("class", "link")
+                        .style("stroke-width", d => {
+                            const sourceSize = Math.sqrt(d.source.size);
+                            const targetSize = Math.sqrt(d.target.size);
+                            return Math.max(1, Math.min(8, (sourceSize + targetSize) / 8));
+                        });
 
                     link = linkEnter.merge(link);
 
@@ -517,7 +540,12 @@
 
             const linkEnter = link.enter()
                 .append("line")
-                .attr("class", "link");
+                .attr("class", "link")
+                .style("stroke-width", d => {
+                    const sourceSize = Math.sqrt(d.source.size);
+                    const targetSize = Math.sqrt(d.target.size);
+                    return Math.max(1, Math.min(8, (sourceSize + targetSize) / 8));
+                });
 
             link = linkEnter.merge(link);
 
