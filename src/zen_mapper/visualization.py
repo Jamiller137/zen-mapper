@@ -131,6 +131,27 @@ class MapperVisualizer:
         self._3d_animations = weakref.WeakSet()
         MapperVisualizer._instances.append(self)
 
+    def create_node_data(self):
+        nodes = []
+        for i, (members, x, y, z) in enumerate(zip(self.result.nodes, 
+                                                 self.result.node_coordinates[:, 0],
+                                                 self.result.node_coordinates[:, 1],
+                                                 self.result.node_coordinates[:, 2])):
+            # Calculate average patch for this node
+            avg_patch = np.mean(self.X[members], axis=0) if len(members) > 0 else np.zeros(9)
+
+            nodes.append({
+                "id": str(i),
+                "x": float(x),
+                "y": float(y),
+                "z": float(z),
+                "size": max(len(members), 1) * 3,
+                "color": float(np.nanmean(self.lens[members]) if len(members) > 0 else 0.0),
+                "patch": avg_patch.tolist(),  # Send raw patch data
+                "tooltip": self._format_tooltip(members)
+            })
+        return nodes
+
     @classmethod
     def update_current_instance(cls, result, X=None, lens=None):
         """Updates the most recent visualizer instance with new data"""
@@ -148,39 +169,68 @@ class MapperVisualizer:
         self._data = None
 
     def _prepare_d3_data(self) -> dict:
-        """
-        Transforms mapper output into D3-compatible format.
-
-        Returns
-        -------
-            dict: Network data structure for D3 visualization
-        """
+        """Transforms mapper output into D3-compatible format."""
         if self._data is not None:
             return self._data
 
         import networkx as nx
+        import base64
+        from PIL import Image
+        import io
+
+        def create_patch_image(patch_data):
+            """Create base64 encoded image of 3x3 patch"""
+            # Reshape to 3x3
+            patch = patch_data.reshape(3, 3)
+
+            # Normalize to [-1, 1] range for proper contrast
+            max_abs = np.max(np.abs(patch))
+            if max_abs > 0:
+                patch = patch / max_abs
+
+            # Convert to 0-255 range for visualization
+            patch = ((patch + 1) * 127.5).astype(np.uint8)
+
+            # Create PIL Image with white background
+            img = Image.fromarray(patch, mode='L')  # 'L' mode for grayscale
+
+            # Resize with better interpolation and larger size
+            img = img.resize((60, 60), Image.Resampling.LANCZOS)
+
+            # Add border for better visibility
+            img_with_border = Image.new('L', (64, 64), 255)
+            img_with_border.paste(img, (2, 2))
+
+            # Convert to base64
+            buffered = io.BytesIO()
+            img_with_border.save(buffered, format="PNG", optimize=True)
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            return img_str
 
         G = nx.Graph()
         G.add_nodes_from(range(len(self.result.nodes)))
         G.add_edges_from(self.result.nerve[1])
-        positions = nx.spring_layout(G, dim=2, seed=42)
-        positions = {k: v * 960 for k, v in positions.items()}
+        positions = nx.spring_layout(G, dim=3, seed=42)
+        positions = {k: v * 1440 for k, v in positions.items()}
 
         nodes = []
         for i, members in enumerate(self.result.nodes):
-            x, y = positions[i]
+            x, y, z = positions[i]
+            # Calculate average patch for this node
+            avg_patch = np.mean(self.X[members], axis=0) if len(members) > 0 else np.zeros(9)
             nodes.append({
                 "id": str(i),
                 "x": float(x),
                 "y": float(y),
-                "size": len(members),
-                "color": float(np.nanmean(self.result.projection[members])
-                         if len(members) > 0 else 0.0),
-                "tooltip": self._format_tooltip(members)
+                "z": float(z),
+                "size": max(len(members), 1) * 5,  # Scaled size, minimum 5
+                "color": float(np.nanmean(self.result.projection[members]) if len(members) > 0 else 0.0),
+                "tooltip": self._format_tooltip(members),
+                "image": create_patch_image(avg_patch)
             })
 
         links = [{"source": str(s[0]), "target": str(s[1])}
-                 for s in self.result.nerve[1]]
+                for s in self.result.nerve[1]]
 
         faces = [{"nodes": [str(n) for n in simplex]}
                 for simplex in self.result.nerve[2]]
@@ -191,6 +241,7 @@ class MapperVisualizer:
             "faces": faces
         }
         return self._data
+
     
     def _prepare_3d_data(self) -> dict:
         """
@@ -204,38 +255,41 @@ class MapperVisualizer:
             G.add_nodes_from(range(len(self.result.nodes)))
             G.add_edges_from(self.result.nerve[1])
 
+            # Generate 3D layout with scaled coordinates
             positions = nx.spring_layout(G, dim=3, seed=42)
-            positions = {k: v * 960 for k, v in positions.items()}
+            positions = {k: (v * 960).tolist() for k, v in positions.items()}  # Convert numpy arrays to lists
 
             nodes = []
             for i, members in enumerate(self.result.nodes):
                 x, y, z = positions[i]
                 nodes.append({
                     "id": str(i),
-                    "x": float(x),
-                    "y": float(y),
-                    "z": float(z),
-                    "size": len(members)
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                    "size": len(members),
+                    "color": float(np.nanmean(self.result.projection[members]) if members.size > 0 else 0.0)
                 })
 
-            # Add 2-simplices (triangles)
+            # Create faces with node references and geometry data
             faces = []
             for simplex in self.result.nerve[2]:
-                face_nodes = [str(n) for n in simplex]
-                faces.append({
-                    "nodes": face_nodes,
-                    "centroid": {
-                        "x": np.mean([positions[n][0] for n in simplex]),
-                        "y": np.mean([positions[n][1] for n in simplex]),
-                        "z": np.mean([positions[n][2] for n in simplex])
+                if len(simplex) == 3:  # Only process 2-simplices (triangles)
+                    node_ids = [str(n) for n in simplex]
+                    face_data = {
+                        "nodes": node_ids,
+                        "normal": list(np.cross(
+                            np.subtract(positions[simplex[1]], positions[simplex[0]]),
+                            np.subtract(positions[simplex[2]], positions[simplex[0]])
+                        ))
                     }
-                })
+                    faces.append(face_data)
 
             self._data = {
                 "nodes": nodes,
                 "links": [{"source": str(s[0]), "target": str(s[1])} 
                         for s in self.result.nerve[1]],
-                "faces": faces 
+                "faces": faces
             }
 
         return self._data
@@ -466,4 +520,6 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         if isinstance(obj, np.floating):
             return float(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
         return super().default(obj)

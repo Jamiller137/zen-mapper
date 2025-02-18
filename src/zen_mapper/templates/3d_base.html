@@ -1,58 +1,257 @@
+
 <!DOCTYPE html>
 <html>
 <head>
     <title>{{ title }}</title>
     <style>
-        body { margin: 0; overflow: hidden; }
-        #3d-graph { width: 100vw; height: 100vh; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #f0f0f0;
+        }
+        #3d-graph { 
+            width: 100vw; 
+            height: 100vh; 
+        }
+        .info-panel {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+        .controls {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.8);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        button {
+            margin: 2px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
     <div id="3d-graph"></div>
+    <div class="controls">
+        <button onclick="cutSelected()">✂️ Cut Selected</button>
+        <button onclick="purgeSmall()">🧹 Purge Small</button>
+        <input type="range" id="sizeThreshold" min="1" max="200" value="10">
+    </div>
+    <div class="info-panel">
+        Selected Node: <span id="node-info">None</span>
+    </div>
 
     <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
     <script src="https://unpkg.com/3d-force-graph@1.70.11/dist/3d-force-graph.min.js"></script>
 
     <script>
-    const Graph = ForceGraph3D()
-        (document.getElementById('3d-graph'))
-        .graphData({{ mapper_data|safe }})
-        .enableNodeDrag(true)
-        .enableNavigationControls(true)
-        .onEngineTick(() => {
-            // Update simplex positions each frame
-            const nodePositions = {};
-            Graph.graphData().nodes.forEach(n => {
-                nodePositions[n.id] = { x: n.x, y: n.y, z: n.z };
-            });
-
-            simplexMeshes.forEach(mesh => {
-                const nodes = mesh.userData.nodes;
-                mesh.geometry.setFromPoints([
-                    new THREE.Vector3(nodePositions[nodes[0]].x, nodePositions[nodes[0]].y, nodePositions[nodes[0]].z),
-                    new THREE.Vector3(nodePositions[nodes[1]].x, nodePositions[nodes[1]].y, nodePositions[nodes[1]].z),
-                    new THREE.Vector3(nodePositions[nodes[2]].x, nodePositions[nodes[2]].y, nodePositions[nodes[2]].z)
-                ]);
-                mesh.geometry.verticesNeedUpdate = true;
-            });
+        // Visualization state
+        let selectedNodes = new Set();
+        const nodeScaleFactor = 2;
+        const MIN_NODE_SIZE = .5;
+        const simplexMaterial = new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.2,
+            side: THREE.DoubleSide,
+            depthWrite: false
         });
+        let simplexMeshes = [];
 
-    // add 2-simplex (faces)
-    const simplexMaterial = new THREE.MeshBasicMaterial({ 
-        color: 0x9afff0,
-        transparent: true,
-        opacity: .2,
-        side: THREE.FrontSide
-    });
+        // Create node object with patch image
+        function createNodeObject(node) {
+            const group = new THREE.Group();
 
-    const simplexMeshes = {{ mapper_data|safe }}.faces.map(face => {
-        const geometry = new THREE.BufferGeometry();
-        const mesh = new THREE.Mesh(geometry, simplexMaterial);
+            // Create sphere for the node
+            const sphereGeometry = new THREE.SphereGeometry(1, 32, 32);
+            const sphereMaterial = new THREE.MeshPhongMaterial({
+                color: getColorFromValue(node.color)
+            });
+            const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            const nodeScale = Math.max(MIN_NODE_SIZE, Math.log(1 + node.size) * nodeScaleFactor);
+            sphere.scale.setScalar(nodeScale);
+            group.add(sphere);
 
-        mesh.userData = { nodes: face.nodes };
-        Graph.scene().add(mesh);
-        return mesh;
-    });
-</script>
+            // Create sprite for the patch image
+            if (node.image) {
+                const texture = new THREE.TextureLoader().load(`data:image/png;base64,${node.image}`);
+                const spriteMaterial = new THREE.SpriteMaterial({ 
+                    map: texture,
+                    sizeAttenuation: true,
+                    depthTest: false,
+                    depthWrite: false
+                });
+
+                const sprite = new THREE.Sprite(spriteMaterial);
+                const spriteScale = nodeScale * 1.25;
+                sprite.scale.set(spriteScale, spriteScale, 1);
+                sprite.position.set(0, 0, 0);
+                group.add(sprite);
+            }
+
+            return group;
+        }
+
+        // Initialize 3D force graph
+        const Graph = ForceGraph3D()
+            (document.getElementById('3d-graph'))
+            .graphData({{ mapper_data|safe }})
+            .nodeThreeObject(node => createNodeObject(node))
+            .nodeThreeObjectExtend(true)
+            .onNodeClick(handleNodeClick)
+            .enableNodeDrag(true)
+            .enableNavigationControls(true)
+            .onEngineTick(updateSimplexPositions);
+
+        function getColorFromValue(value) {
+            const minVal = Math.min(...Graph.graphData().nodes.map(n => n.color));
+            const maxVal = Math.max(...Graph.graphData().nodes.map(n => n.color));
+            const t = (value - minVal) / (maxVal - minVal);
+            return `hsl(${240 * (1 - t)}, 100%, 50%)`;
+        }
+
+        // Initialize face meshes
+        function updateSimplexMeshes(faces) {
+            // Clean up existing meshes
+            simplexMeshes.forEach(mesh => {
+                Graph.scene().remove(mesh);
+                mesh.geometry.dispose();
+                mesh.material.dispose();
+            });
+            simplexMeshes = [];
+
+            // Create new meshes
+            faces.forEach(face => {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+                const mesh = new THREE.Mesh(geometry, simplexMaterial.clone());
+                mesh.userData = { nodes: face.nodes };
+                Graph.scene().add(mesh);
+                simplexMeshes.push(mesh);
+            });
+
+            Graph.scene().needsUpdate = true;
+            Graph.renderer().clear();
+        }
+
+        // Node interaction handler
+        function handleNodeClick(node) {
+            const wasSelected = selectedNodes.has(node.id);
+            selectedNodes.has(node.id) ? selectedNodes.delete(node.id) : selectedNodes.add(node.id);
+            document.getElementById('node-info').textContent = wasSelected ? 'None' : `ID: ${node.id}, Size: ${node.size}`;
+            Graph.nodeColor(Graph.nodeColor());
+        }
+
+        // Update face positions with physics simulation
+        function updateSimplexPositions() {
+            const nodePositions = new Map(  
+                Graph.graphData().nodes.map(n => [n.id ?? n, new THREE.Vector3(n.x, n.y, n.z)])
+            );
+
+            simplexMeshes.forEach((mesh, i) => {
+                const faceNodes = mesh.userData.nodes;
+                const valid = faceNodes?.every(n => {
+                    const nodeId = n?.id ?? n;
+                    return nodePositions.has(nodeId);
+                });
+
+                if (!valid) {
+                    // Immediately remove invalid meshes
+                    Graph.scene().remove(mesh);
+                    mesh.geometry.dispose();
+                    mesh.material.dispose();
+                    simplexMeshes[i] = null;
+                } else {
+                    // Update valid meshes
+                    const positions = new Float32Array(faceNodes.flatMap(n => {
+                        const pos = nodePositions.get(n?.id ?? n);
+                        return pos ? pos.toArray() : [0, 0, 0];
+                    }));
+                    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    mesh.geometry.computeVertexNormals();
+                }
+            });
+
+            // Clean null entries
+            simplexMeshes = simplexMeshes.filter(Boolean);
+        }
+
+        // Complex modification functions
+        function cutSelected() {
+            const currentData = Graph.graphData();
+            const keptNodes = currentData.nodes.filter(n => !selectedNodes.has(n.id));
+            const keptIds = new Set(keptNodes.map(n => n.id));
+
+            const newLinks = currentData.links.filter(l => 
+                keptIds.has(l.source.id) && keptIds.has(l.target.id) // Use .id if sources are objects
+            );
+
+            
+            const newFaces = currentData.faces.filter(face => {
+                // Validate both node existence AND active links
+                const validNodes = face.nodes?.every(n => {
+                    const nodeId = n?.id ?? n;
+                    return keptIds.has(nodeId);
+                });
+
+                // Ensure triangular connectivity in remaining graph
+                return validNodes && face.nodes.every(n => {
+                    const node = keptNodes.find(remaining => (remaining.id ?? remaining) === (n?.id ?? n));
+                    return node?.links?.some(l => keptIds.has(l.source) && keptIds.has(l.target));
+                });
+            });
+
+            Graph.graphData({
+                nodes: keptNodes,
+                links: newLinks,
+                faces: newFaces
+            }).numDimensions(3).d3VelocityDecay(0.1).d3Alpha(0.5);
+
+            updateSimplexMeshes(newFaces);
+            Graph.renderer().renderLists.dispose();
+            Graph.renderer().clear();
+            Graph.scene().needsUpdate = true;
+            selectedNodes.clear();
+        }
+
+        function purgeSmall() {
+            const threshold = parseInt(document.getElementById('sizeThreshold').value);
+            const currentData = Graph.graphData();
+            const keptNodes = currentData.nodes.filter(n => n.size >= threshold);
+            const keptIds = new Set(keptNodes.map(n => n.id));
+
+            const newLinks = currentData.links.filter(l => 
+                keptIds.has(l.source?.id ?? l.source) && 
+                keptIds.has(l.target?.id ?? l.target)
+            );
+
+            const edgeExists = new Set(
+                newLinks.map(l => `${l.source?.id ?? l.source}-${l.target?.id ?? l.target}`)
+            );
+            const newFaces = currentData.faces.filter(face => face.nodes?.every(n => keptIds.has(n?.id ?? n)));
+
+
+            selectedNodes = new Set([...selectedNodes].filter(id => keptIds.has(id)));
+
+            Graph.graphData({
+                nodes: keptNodes,
+                links: newLinks,
+                faces: newFaces
+            });
+
+            updateSimplexMeshes(newFaces);
+        }
+
+        // Initial setup
+        updateSimplexMeshes({{ mapper_data|safe }}.faces);
+        Graph.camera().near = 0.1;
+        Graph.camera().far = 5000;
+    </script>
 </body>
 </html>
