@@ -10,8 +10,8 @@ format:
 	ruff check src --fix
 	nix fmt
 
-# Check for style issues
-lint:
+# Check for issues
+lint: type-check
 	ruff format --check .
 	ruff check src
 	alejandra --check .
@@ -41,3 +41,7 @@ clean:
 	rm -rf dist/ docs/build/ result
 	find src/ -type f -name "*.pyc" -delete
 	find src/ -type d -name "__pycache__" -delete
+
+# Run the type checker
+type-check:
+	pyright src
