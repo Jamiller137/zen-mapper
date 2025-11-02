@@ -65,18 +65,14 @@ def test_split_clamping(
 
     # two Gaussian clusters
     np.random.seed(random_seed)
-    left_cluster = np.random.normal(
-        loc=left_mean, scale=left_scale, size=cluster_size
-    )
+    left_cluster = np.random.normal(loc=left_mean, scale=left_scale, size=cluster_size)
     right_cluster = np.random.normal(
         loc=right_mean, scale=right_scale, size=cluster_size
     )
     data = np.concatenate([left_cluster, right_cluster])
 
     # an interval spanning the data range
-    interval = _make_interval(
-        data, lower_bound=data.min(), upper_bound=data.max()
-    )
+    interval = _make_interval(data, lower_bound=data.min(), upper_bound=data.max())
 
     # split the interval
     result = _split(interval, data, g_overlap=g_overlap, random_state=random_seed)

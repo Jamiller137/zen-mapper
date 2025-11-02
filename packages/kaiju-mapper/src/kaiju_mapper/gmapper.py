@@ -22,6 +22,7 @@ class Interval:
 
     An interval along with all the metadata used by G-Mapper
     """
+
     ad_score: float
     """The negation of the Anderson-Darling score for the interval"""
     lower_bound: float = field(compare=False)
@@ -164,13 +165,21 @@ def _split(
     left_std, right_std = np.sqrt(covariances[index])
 
     new_upper_bound = min(
-        left_mean + (1 + g_overlap) * left_std / (left_std + right_std) * (right_mean - left_mean),
-        right_mean
+        left_mean
+        + (1 + g_overlap)
+        * left_std
+        / (left_std + right_std)
+        * (right_mean - left_mean),
+        right_mean,
     )
 
     new_lower_bound = max(
-        right_mean - (1 + g_overlap) * right_std / (left_std + right_std) * (right_mean - left_mean),
-        left_mean
+        right_mean
+        - (1 + g_overlap)
+        * right_std
+        / (left_std + right_std)
+        * (right_mean - left_mean),
+        left_mean,
     )
 
     if new_upper_bound >= interval.upper_bound:
