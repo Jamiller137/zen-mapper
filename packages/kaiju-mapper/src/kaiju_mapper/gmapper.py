@@ -22,6 +22,7 @@ class Interval:
 
     An interval along with all the metadata used by G-Mapper
     """
+
     ad_score: float
     """The negation of the Anderson-Darling score for the interval"""
     lower_bound: float = field(compare=False)
