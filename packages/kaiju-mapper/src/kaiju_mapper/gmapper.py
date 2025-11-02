@@ -164,13 +164,23 @@ def _split(
     left_mean, right_mean = means[index]
     left_std, right_std = np.sqrt(covariances[index])
 
-    new_upper_bound = left_mean + (1 + g_overlap) * left_std / (
-        left_std + right_std
-    ) * (right_mean - left_mean)
+    new_upper_bound = min(
+        left_mean
+        + (1 + g_overlap)
+        * left_std
+        / (left_std + right_std)
+        * (right_mean - left_mean),
+        right_mean,
+    )
 
-    new_lower_bound = right_mean - (1 + g_overlap) * right_std / (
-        left_std + right_std
-    ) * (right_mean - left_mean)
+    new_lower_bound = max(
+        right_mean
+        - (1 + g_overlap)
+        * right_std
+        / (left_std + right_std)
+        * (right_mean - left_mean),
+        left_mean,
+    )
 
     if new_upper_bound >= interval.upper_bound:
         return None
