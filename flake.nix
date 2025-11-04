@@ -45,12 +45,11 @@
       LC_ALL = "en_US.UTF-8";
 
       buildInputs = [
-        pkgs.pyright
-        pkgs.uv
         pkgs.jq
         pkgs.just
-        pkgs.ruff
         pkgs.pyright
+        pkgs.ruff
+        pkgs.uv
         self.formatter.${system}
       ];
 
