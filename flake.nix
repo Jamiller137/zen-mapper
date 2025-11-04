@@ -47,7 +47,6 @@
       buildInputs = [
         pkgs.pyright
         pkgs.uv
-        pkgs.hatch
         pkgs.jq
         pkgs.just
         pkgs.ruff
